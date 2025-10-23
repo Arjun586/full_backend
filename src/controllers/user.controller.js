@@ -4,12 +4,15 @@ import { User} from "../models/user.model.js"
 import {uploadOnCloudinary} from "../utils/cloudinary.js"
 import { ApiResponse } from "../utils/ApiResponse.js";
 import jwt from "jsonwebtoken"
+import mongoose from "mongoose";
 
 const generateAccessAndRefereshTokens = async(userId) =>{
     try {
         const user = await User.findById(userId)
         const accessToken = user.generateAccessToken()
         const refreshToken = user.generateRefreshToken()
+        console.log('Inside Generator Refresh Token')
+        console.log(refreshToken)
 
         user.refreshToken = refreshToken
         await user.save({ validateBeforeSave: false })
@@ -203,16 +206,19 @@ const refreshAccessToken = asyncHandler( async(req, res) => {
             httpOnly: true,
             secure: true
         }
+        console.log("Generating New RefreshToken..................")
+        const {accessToken, refreshToken} = await generateAccessAndRefereshTokens(user._id)
+        console.log('New Refresh Token Generated................')
         
-        const {accessToken, newRefereshToken} = await generateAccessAndRefereshTokens(user._id)
+        console.log(refreshToken)
     
         return res.status(200)
         .cookie("accessToken", accessToken, options)
-        .cookie("refreshToken", newRefereshToken, options)
+        .cookie("refreshToken", refreshToken, options)
         .json(
-            new ApiError(
+            new ApiResponse(
                 200,
-                {accessToken, newRefereshToken},
+                {accessToken, refreshToken},
                 "Access Token refreshed"
             )
         )
@@ -234,7 +240,7 @@ const changeCurrentPassword = asyncHandler( async(req, res) =>{
         throw new ApiError(400, "Invalid Password")
     }
 
-    user.password = password
+    user.password = newPassword
     await user.save({validateBeforeSave:false})
 
     return res.status(200)
@@ -404,6 +410,59 @@ const getUserChannelProfile = asyncHandler(async(req, res) =>{
 })
 
 
+const getUserWatchHistory = asyncHandler(async(req, res) =>{
+    const user = await User.aggregate([
+        {
+            $match:{
+                _id: new mongoose.Types.ObjectId(req.user._id)
+            }
+        },
+        {
+            $lookup:{
+                from: "videos",
+                localField: "watchHistroy",
+                foreignField: "_id",
+                as: "watchHistory",
+                pipeline: [
+                    {
+                        $lookup: {
+                            from: "user",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "owner",
+                            pipeline: [
+                                {
+                                    $project: {
+                                        fullName: 1,
+                                        userName: 1,
+                                        avatar: 1
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    {
+                        $addFields: {
+                            owner:{
+                                $first: "$owner"
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ])
+
+    return res.status(200)
+    .json(new ApiResponse(
+        200,
+        user[0],watchHistory,
+        "WatchHistroy Feteched sucessfully"
+    ))
+
+})
+
+
 export {registerUser, 
         loginUser, 
         logoutUser, 
@@ -413,5 +472,6 @@ export {registerUser,
         updateAccountDetails,
         updateAvatar,
         updateCoverImage,
-        getUserChannelProfile
+        getUserChannelProfile,
+        getUserWatchHistory
     }
